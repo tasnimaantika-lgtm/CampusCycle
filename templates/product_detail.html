@@ -565,7 +565,7 @@
       padding: 14px 20px;
       border-radius: 12px;
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-      z-index: 999;
+      z-index: 10005;
       align-items: center;
       gap: 12px;
       font-size: 14px;
@@ -1181,7 +1181,37 @@
     // Payment & Buy Now Modal Logic
     let currentSelectedMethod = 'bkash';
 
+    function getSubmitButtonContent(method) {
+      if (method === 'bkash') {
+        return '<i class="ph-bold ph-shield-check"></i> <span id="paySubmitText">Confirm & Pay ৳{{ product.selling_price }} with bKash</span>';
+      } else if (method === 'nagad') {
+        return '<i class="ph-bold ph-shield-check"></i> <span id="paySubmitText">Confirm & Pay ৳{{ product.selling_price }} with Nagad</span>';
+      } else if (method === 'rocket') {
+        return '<i class="ph-bold ph-shield-check"></i> <span id="paySubmitText">Confirm & Pay ৳{{ product.selling_price }} with Rocket</span>';
+      } else if (method === 'card') {
+        return '<i class="ph-bold ph-credit-card"></i> <span id="paySubmitText">Pay ৳{{ product.selling_price }} via Card</span>';
+      } else {
+        return '<i class="ph-bold ph-handshake"></i> <span id="paySubmitText">Place Order (Pay Cash on Handover)</span>';
+      }
+    }
+
     function openPaymentModal() {
+      // Reset modal views
+      const errorBox = document.getElementById('modalErrorBox');
+      if (errorBox) errorBox.style.display = 'none';
+      const form = document.getElementById('buyNowForm');
+      if (form) form.style.display = 'block';
+      const summary = document.getElementById('modalProductSummary');
+      if (summary) summary.style.display = 'block';
+      const successView = document.getElementById('paymentSuccessView');
+      if (successView) successView.style.display = 'none';
+
+      const submitBtn = document.getElementById('paySubmitBtn');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = getSubmitButtonContent(currentSelectedMethod);
+      }
+
       document.getElementById('paymentModal').style.display = 'flex';
     }
 
@@ -1204,7 +1234,6 @@
       document.getElementById('cashTray').style.display = 'none';
 
       const submitBtn = document.getElementById('paySubmitBtn');
-      const submitText = document.getElementById('paySubmitText');
 
       if (method === 'bkash') {
         document.getElementById('mfsTray').style.display = 'block';
@@ -1213,7 +1242,7 @@
         document.getElementById('mfsPhoneLabel').innerText = 'bKash Account Number';
         document.getElementById('mfsPhoneInput').placeholder = '017XXXXXXXX';
         submitBtn.style.background = 'linear-gradient(135deg, #d82a68, #be185d)';
-        submitText.innerText = 'Confirm & Pay ৳{{ product.selling_price }} with bKash';
+        submitBtn.innerHTML = getSubmitButtonContent('bkash');
         generateSimulatedTrx('BK');
       } else if (method === 'nagad') {
         document.getElementById('mfsTray').style.display = 'block';
@@ -1222,7 +1251,7 @@
         document.getElementById('mfsPhoneLabel').innerText = 'Nagad Account Number';
         document.getElementById('mfsPhoneInput').placeholder = '018XXXXXXXX';
         submitBtn.style.background = 'linear-gradient(135deg, #f7941d, #d97706)';
-        submitText.innerText = 'Confirm & Pay ৳{{ product.selling_price }} with Nagad';
+        submitBtn.innerHTML = getSubmitButtonContent('nagad');
         generateSimulatedTrx('NG');
       } else if (method === 'rocket') {
         document.getElementById('mfsTray').style.display = 'block';
@@ -1231,16 +1260,16 @@
         document.getElementById('mfsPhoneLabel').innerText = 'Rocket Account Number (12 digits)';
         document.getElementById('mfsPhoneInput').placeholder = '019XXXXXXXXX';
         submitBtn.style.background = 'linear-gradient(135deg, #8c3494, #6b21a8)';
-        submitText.innerText = 'Confirm & Pay ৳{{ product.selling_price }} with Rocket';
+        submitBtn.innerHTML = getSubmitButtonContent('rocket');
         generateSimulatedTrx('RK');
       } else if (method === 'card') {
         document.getElementById('cardTray').style.display = 'block';
         submitBtn.style.background = 'linear-gradient(135deg, #2563eb, #1d4ed8)';
-        submitText.innerText = 'Pay ৳{{ product.selling_price }} via Card';
+        submitBtn.innerHTML = getSubmitButtonContent('card');
       } else if (method === 'cash_on_meetup') {
         document.getElementById('cashTray').style.display = 'block';
         submitBtn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
-        submitText.innerText = 'Place Order (Pay Cash on Handover)';
+        submitBtn.innerHTML = getSubmitButtonContent('cash_on_meetup');
       }
     }
 
@@ -1259,8 +1288,11 @@
       const form = document.getElementById('buyNowForm');
       const formData = new FormData(form);
       const submitBtn = document.getElementById('paySubmitBtn');
+      const errorBox = document.getElementById('modalErrorBox');
+      if (errorBox) errorBox.style.display = 'none';
+
       submitBtn.disabled = true;
-      submitBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Processing Payment...';
+      submitBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Processing & Confirming Payment...';
 
       fetch(form.action, {
         method: 'POST',
@@ -1269,21 +1301,39 @@
           'X-Requested-With': 'XMLHttpRequest'
         }
       })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          showToast('ph-check-circle', '#34d399', 'Payment Successful!', data.message);
-          setTimeout(() => {
-            window.location.href = data.redirect || '/profile';
-          }, 1200);
+      .then(res => res.json().then(data => ({ status: res.status, data: data })))
+      .then(({ status, data }) => {
+        if (data && data.success) {
+          // Show Confirm & Payment Done State
+          form.style.display = 'none';
+          const summary = document.getElementById('modalProductSummary');
+          if (summary) summary.style.display = 'none';
+
+          const successView = document.getElementById('paymentSuccessView');
+          if (successView) {
+            document.getElementById('successOrderId').innerText = '#ORD-' + (data.order_id || '00001');
+            const chosenMethod = formData.get('payment_method') || 'bkash';
+            document.getElementById('successPayMethod').innerText = chosenMethod.replace('_', ' ');
+            document.getElementById('successTrxId').innerText = formData.get('trx_id') || 'VERIFIED';
+            document.getElementById('successDeliveryPlace').innerText = formData.get('delivery_place') || 'UB Gate / Building Lobby';
+            successView.style.display = 'block';
+          }
+          showToast('ph-check-circle', '#34d399', 'Payment Done & Order Confirmed!', data.message || 'Your order was placed successfully.');
         } else {
-          showToast('ph-warning-circle', '#f43f5e', 'Order Error', data.message || 'Payment failed.');
+          // Display error inside modal
+          const errMsg = (data && data.message) ? data.message : 'Payment could not be verified. Please try again.';
+          if (errorBox) {
+            document.getElementById('modalErrorMsg').innerText = errMsg;
+            errorBox.style.display = 'flex';
+          }
+          showToast('ph-warning-circle', '#f43f5e', 'Order Notice', errMsg);
           submitBtn.disabled = false;
-          submitBtn.innerHTML = '<i class="ph-bold ph-shield-check"></i> <span id="paySubmitText">Try Again</span>';
+          submitBtn.innerHTML = getSubmitButtonContent(currentSelectedMethod);
         }
       })
       .catch(err => {
         console.error('Error submitting order:', err);
+        // Fallback to traditional form submission
         form.submit();
       });
     }
@@ -1304,7 +1354,7 @@
       <div class="modal-body">
         
         <!-- Product Summary snippet with Reviews indicator & Seller Trust Score -->
-        <div style="background: rgba(30, 41, 59, 0.6); padding: 14px 16px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 18px;">
+        <div id="modalProductSummary" style="background: rgba(30, 41, 59, 0.6); padding: 14px 16px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 18px;">
           
           <div style="display: flex; gap: 14px; align-items: center; margin-bottom: 10px; border-bottom: 1px dashed rgba(255,255,255,0.08); padding-bottom: 10px;">
             <img src="{{ photos[0] if photos else 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=200' }}" alt="{{ product.product_name }}" style="width: 52px; height: 52px; border-radius: 10px; object-fit: cover; border: 1px solid rgba(255,255,255,0.12);">
@@ -1365,6 +1415,12 @@
             </div>
           {% endif %}
 
+        </div>
+
+        <!-- In-Modal Notice / Error Alert -->
+        <div id="modalErrorBox" style="display: none; background: rgba(244, 63, 94, 0.16); border: 1px solid rgba(244, 63, 94, 0.45); color: #fda4af; padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; font-size: 13px; align-items: center; gap: 10px;">
+          <i class="ph-bold ph-warning-circle" style="font-size: 20px; color: #f43f5e; flex-shrink: 0;"></i>
+          <span id="modalErrorMsg" style="flex: 1; line-height: 1.4;"></span>
         </div>
 
         <form id="buyNowForm" action="{{ url_for('buy_now', product_id=product.product_id) }}" method="POST" onsubmit="handleBuyNowForm(event)">
@@ -1463,6 +1519,52 @@
             <span id="paySubmitText">Confirm & Pay ৳{{ product.selling_price }} with bKash</span>
           </button>
         </form>
+
+        <!-- Success Screen: Payment Done & Confirmed -->
+        <div id="paymentSuccessView" style="display: none; padding: 10px 4px 16px; text-align: center; animation: fadeIn 0.3s ease;">
+          <div style="width: 76px; height: 76px; background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; color: #34d399; font-size: 42px; box-shadow: 0 0 25px rgba(16, 185, 129, 0.35);">
+            <i class="ph-bold ph-check"></i>
+          </div>
+
+          <h3 style="font-size: 22px; font-weight: 800; color: #ffffff; margin-bottom: 6px;">Payment Done! 🎉</h3>
+          <p style="color: #94a3b8; font-size: 13.5px; margin-bottom: 20px;">Order confirmed! Your verified campus handover is ready.</p>
+
+          <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px; padding: 16px; text-align: left; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 10px;">
+              <span style="font-size: 12px; color: #94a3b8;">Order Status</span>
+              <span style="font-size: 11.5px; font-weight: 800; background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 2px 10px; border-radius: 9999px; border: 1px solid rgba(16, 185, 129, 0.4);">CONFIRMED &amp; PAID</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 10px;">
+              <span style="font-size: 12px; color: #94a3b8;">Order Number</span>
+              <span id="successOrderId" style="font-weight: 800; color: #38bdf8; font-family: monospace; font-size: 13px;">#ORD-00000</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 10px;">
+              <span style="font-size: 12px; color: #94a3b8;">Amount Paid</span>
+              <span style="font-weight: 800; color: #34d399; font-size: 16px;">৳{{ product.selling_price }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 10px;">
+              <span style="font-size: 12px; color: #94a3b8;">Payment Method</span>
+              <span id="successPayMethod" style="font-weight: 700; color: #f1f5f9; font-size: 12.5px; text-transform: uppercase;">bKash</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 10px;">
+              <span style="font-size: 12px; color: #94a3b8;">Transaction ID</span>
+              <span id="successTrxId" style="font-weight: 700; color: #fef08a; font-family: monospace; font-size: 12px;">BK79A2149</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 12px; color: #94a3b8;">Campus Handover</span>
+              <span id="successDeliveryPlace" style="font-weight: 700; color: #cbd5e1; font-size: 12px;">UB Gate / Building Lobby</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 10px;">
+            <a href="{{ url_for('profile') }}" class="btn" style="flex: 1; background: linear-gradient(135deg, #10b981, #059669); color: #ffffff; font-weight: 800; padding: 13px; border-radius: 12px; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);">
+              <i class="ph-bold ph-receipt"></i> View Order &amp; Receipt
+            </a>
+            <button type="button" onclick="closePaymentModal(); window.location.reload();" class="btn" style="flex: 1; background: rgba(255, 255, 255, 0.08); color: #e2e8f0; font-weight: 700; padding: 13px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.15); cursor: pointer;">
+              Done
+            </button>
+          </div>
+        </div>
 
       </div>
     </div>

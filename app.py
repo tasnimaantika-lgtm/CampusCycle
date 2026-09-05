@@ -1360,80 +1360,82 @@ def buy_now(product_id):
             return jsonify({'success': False, 'message': 'Product not found.'}), 404
         return redirect(url_for('marketplace'))
 
-    if product['seller_id'] == student_id:
-        cur.close()
-        if is_ajax:
-            return jsonify({'success': False, 'message': 'You cannot purchase your own listed item.'}), 400
-        return redirect(url_for('product_detail', product_id=product_id))
-
     # Ensure student cart exists
-    cur.execute("SELECT cart_id FROM cart WHERE student_id = %s LIMIT 1", (student_id,))
-    user_cart = cur.fetchone()
-    if not user_cart:
-        cur.execute("INSERT INTO cart (student_id, total_bill) VALUES (%s, 0)", (student_id,))
-        mysql.connection.commit()
-        cart_id = cur.lastrowid
-    else:
-        cart_id = user_cart['cart_id']
-
-    total_bill = float(product['selling_price'] or 0)
-    is_digital_paid = payment_method in ['bkash', 'nagad', 'rocket', 'card']
-    delivery_status = 'confirmed' if is_digital_paid else 'pending'
-    buyer_confirmation = 1 if is_digital_paid else 0
-    confirmation = 1 if is_digital_paid else 0
-
-    cur.execute("""
-        INSERT INTO orders 
-        (cart_id, st_buyer_id, final_bill, payment_method, delivery_date, delivery_place, delivery_status, buyer_confirmation, confirmation, order_type)
-        VALUES (%s, %s, %s, %s, CURDATE(), %s, %s, %s, %s, 'buy')
-    """, (cart_id, student_id, total_bill, payment_method, delivery_place, delivery_status, buyer_confirmation, confirmation))
-    order_id = cur.lastrowid
-
-    # Generate Digital Receipt
-    items_summary = [{'product_id': product['product_id'], 'product_name': product['product_name'], 'price': total_bill, 'seller_name': product.get('seller_name', 'Peer')}]
-    receipt_json = create_digital_receipt(order_id, student_id, user_name, total_bill, payment_method, account_number, trx_id, delivery_place, items_summary)
-    cur.execute("UPDATE orders SET receipt = %s WHERE order_id = %s", (receipt_json, order_id))
-
-    # Link product with order_id and mark as sold
-    cur.execute("UPDATE product SET order_id = %s, sold_date = CURDATE() WHERE product_id = %s", (order_id, product_id))
     try:
-        cur.execute("UPDATE product_date SET sold = CURDATE() WHERE product_id = %s", (product_id,))
-    except Exception:
-        pass
+        cur.execute("SELECT cart_id FROM cart WHERE student_id = %s LIMIT 1", (student_id,))
+        user_cart = cur.fetchone()
+        if not user_cart:
+            cur.execute("INSERT INTO cart (student_id, total_bill) VALUES (%s, 0)", (student_id,))
+            mysql.connection.commit()
+            cart_id = cur.lastrowid
+        else:
+            cart_id = user_cart['cart_id']
 
-    # Notifications
-    seller_id = product.get('seller_id')
-    if seller_id and seller_id != student_id:
-        msg = f"Order #{order_id}: {user_name} purchased '{product['product_name']}' (৳{total_bill}) via {payment_method.replace('_', ' ').upper()}."
+        total_bill = float(product['selling_price'] or 0)
+        is_digital_paid = payment_method in ['bkash', 'nagad', 'rocket', 'card']
+        delivery_status = 'confirmed' if is_digital_paid else 'pending'
+        buyer_confirmation = 1 if is_digital_paid else 0
+        confirmation = 1 if is_digital_paid else 0
+
+        cur.execute("""
+            INSERT INTO orders 
+            (cart_id, st_buyer_id, final_bill, payment_method, delivery_date, delivery_place, delivery_status, buyer_confirmation, confirmation, order_type)
+            VALUES (%s, %s, %s, %s, CURDATE(), %s, %s, %s, %s, 'buy')
+        """, (cart_id, student_id, total_bill, payment_method, delivery_place, delivery_status, buyer_confirmation, confirmation))
+        order_id = cur.lastrowid
+
+        # Generate Digital Receipt
+        items_summary = [{'product_id': product['product_id'], 'product_name': product['product_name'], 'price': total_bill, 'seller_name': product.get('seller_name', 'Peer')}]
+        receipt_json = create_digital_receipt(order_id, student_id, user_name, total_bill, payment_method, account_number, trx_id, delivery_place, items_summary)
+        cur.execute("UPDATE orders SET receipt = %s WHERE order_id = %s", (receipt_json, order_id))
+
+        # Link product with order_id and mark as sold
+        cur.execute("UPDATE product SET order_id = %s, sold_date = CURDATE() WHERE product_id = %s", (order_id, product_id))
         try:
-            cur.execute("""
-                INSERT INTO notification (buyer_notification, user_notification, text, notification_type, notification_status)
-                VALUES (%s, %s, %s, 'payment_received', 'unread')
-            """, (seller_id, student_id, msg))
+            cur.execute("UPDATE product_date SET sold = CURDATE() WHERE product_id = %s", (product_id,))
         except Exception:
             pass
 
-    buyer_msg = f"Order #{order_id} placed! ৳{total_bill} for '{product['product_name']}' via {payment_method.replace('_', ' ').upper()}. Handover at {delivery_place}."
-    try:
-        cur.execute("""
-            INSERT INTO notification (buyer_notification, user_notification, text, notification_type, notification_status)
-            VALUES (%s, %s, %s, 'order_confirmed', 'unread')
-        """, (student_id, student_id, buyer_msg))
-    except Exception:
-        pass
+        # Notifications
+        seller_id = product.get('seller_id')
+        if seller_id and seller_id != student_id:
+            msg = f"Order #{order_id}: {user_name} purchased '{product['product_name']}' (৳{total_bill}) via {payment_method.replace('_', ' ').upper()}."
+            try:
+                cur.execute("""
+                    INSERT INTO notification (buyer_notification, user_notification, text, notification_type, notification_status)
+                    VALUES (%s, %s, %s, 'payment_received', 'unread')
+                """, (seller_id, student_id, msg))
+            except Exception:
+                pass
 
-    mysql.connection.commit()
-    cur.close()
+        buyer_msg = f"Order #{order_id} confirmed! ৳{total_bill} for '{product['product_name']}' via {payment_method.replace('_', ' ').upper()}. Handover at {delivery_place}."
+        try:
+            cur.execute("""
+                INSERT INTO notification (buyer_notification, user_notification, text, notification_type, notification_status)
+                VALUES (%s, %s, %s, 'order_confirmed', 'unread')
+            """, (student_id, student_id, buyer_msg))
+        except Exception:
+            pass
 
-    if is_ajax:
-        return jsonify({
-            'success': True,
-            'message': f"Order #{order_id} confirmed via {payment_method.replace('_', ' ').upper()}! Digital receipt generated.",
-            'order_id': order_id,
-            'redirect': url_for('profile')
-        })
+        mysql.connection.commit()
+        cur.close()
 
-    return redirect(url_for('profile'))
+        if is_ajax:
+            return jsonify({
+                'success': True,
+                'message': f"Order #{order_id} confirmed via {payment_method.replace('_', ' ').upper()}! Digital receipt generated.",
+                'order_id': order_id,
+                'redirect': url_for('profile')
+            })
+
+        return redirect(url_for('profile'))
+
+    except Exception as e:
+        mysql.connection.rollback()
+        cur.close()
+        if is_ajax:
+            return jsonify({'success': False, 'message': f'Payment processing error: {str(e)}'}), 500
+        return redirect(url_for('product_detail', product_id=product_id))
 
 
 @app.route('/pay-order/<int:order_id>', methods=['POST'])
